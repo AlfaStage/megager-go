@@ -1,47 +1,23 @@
 // src/pages/Api.tsx
-import { useState } from 'react';
-import { ShieldCheck, Loader2 } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { ShieldCheck, Loader2, ServerCrash } from 'lucide-react';
 import useAuth from '@/hooks/useAuth';
 import apiClient from '@/services/api/client';
 import { Card, CardContent, CardHeader, CardDescription } from '@evoapi/design-system';
 import { Input } from '@evoapi/design-system';
 import { Button } from '@evoapi/design-system';
 import { Badge } from '@evoapi/design-system';
+import { Skeleton } from '@evoapi/design-system';
 import { cn } from '@/utils/cn';
 
-const apiEndpoints = [
-  {
-    method: 'GET',
-    path: '/server/status',
-    description: 'Returns the server status.',
-  },
-  {
-    method: 'GET',
-    path: '/instance/status/:instanceName',
-    description: 'Retrieves the status for a specific instance.',
-    params: ['instanceName'],
-  },
-  {
-    method: 'GET',
-    path: '/instance/connect/:instanceName',
-    description: 'Connects to a specific instance.',
-    params: ['instanceName'],
-  },
-  {
-    method: 'GET',
-    path: '/instance/logout/:instanceName',
-    description: 'Logs out a specific instance.',
-    params: ['instanceName'],
-  },
-  {
-    method: 'DELETE',
-    path: '/instance/delete/:instanceName',
-    description: 'Deletes a specific instance.',
-    params: ['instanceName'],
-  },
-];
+interface ApiEndpoint {
+  method: string;
+  path: string;
+  description: string;
+  params: string[];
+}
 
-function EndpointCard({ method, path, description, params: paramNames = [] }: (typeof apiEndpoints)[0]) {
+function EndpointCard({ method, path, description, params: paramNames = [] }: ApiEndpoint) {
   const { apiUrl, apiKey } = useAuth();
   const [params, setParams] = useState<Record<string, string>>({});
   const [response, setResponse] = useState<any>(null);
@@ -59,7 +35,7 @@ function EndpointCard({ method, path, description, params: paramNames = [] }: (t
 
     let finalPath = path;
     paramNames.forEach((name) => {
-      finalPath = finalPath.replace(`:${name}`, params[name] || '');
+      finalPath = finalPath.replace(`{${name}}`, params[name] || '');
     });
 
     try {
@@ -96,20 +72,20 @@ function EndpointCard({ method, path, description, params: paramNames = [] }: (t
     <Card className="overflow-hidden shadow-lg transition-all hover:shadow-2xl">
       <CardHeader>
         <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-                 <Badge
-                    className={cn(
-                        'text-sm font-bold',
-                        method === 'GET' && 'bg-blue-500',
-                        method === 'POST' && 'bg-green-500',
-                        method === 'DELETE' && 'bg-red-500',
-                    )}
-                >
-                    {method}
-                </Badge>
-                <code className="text-lg font-mono text-foreground">{path}</code>
-            </div>
-            <ShieldCheck className="h-6 w-6 text-green-500" />
+          <div className="flex items-center gap-4">
+            <Badge
+              className={cn(
+                  'text-sm font-bold',
+                  method.toUpperCase() === 'GET' && 'bg-blue-500',
+                  method.toUpperCase() === 'POST' && 'bg-green-500',
+                  method.toUpperCase() === 'DELETE' && 'bg-red-500',
+              )}
+            >
+              {method.toUpperCase()}
+            </Badge>
+            <code className="text-lg font-mono text-foreground">{path}</code>
+          </div>
+          <ShieldCheck className="h-6 w-6 text-green-500" />
         </div>
         <CardDescription className="pt-2">{description}</CardDescription>
       </CardHeader>
@@ -136,9 +112,9 @@ function EndpointCard({ method, path, description, params: paramNames = [] }: (t
           <div className="mt-6">
             <h4 className="font-semibold mb-2">Response</h4>
             <div className="flex items-center gap-2 mb-2">
-                <span className={cn('px-2 py-0.5 rounded-full text-white text-xs', getStatusColor(response.status))}>
-                    {response.status}
-                </span>
+              <span className={cn('px-2 py-0.5 rounded-full text-white text-xs', getStatusColor(response.status))}>
+                {response.status}
+              </span>
             </div>
             <pre className="mt-2 rounded-lg bg-muted p-4 text-sm overflow-x-auto">
               <code>{JSON.stringify(response.data, null, 2)}</code>
@@ -147,17 +123,17 @@ function EndpointCard({ method, path, description, params: paramNames = [] }: (t
         )}
 
         {error && (
-            <div className="mt-6">
-                <h4 className="font-semibold mb-2 text-red-500">Error</h4>
-                 <div className="flex items-center gap-2 mb-2">
-                    <span className={cn('px-2 py-0.5 rounded-full text-white text-xs', getStatusColor(error.status))}>
-                        {error.status || 'Client Error'}
-                    </span>
-                </div>
-                <pre className="mt-2 rounded-lg bg-red-500/10 p-4 text-sm text-red-500 overflow-x-auto">
-                <code>{JSON.stringify(error.data, null, 2)}</code>
-                </pre>
+          <div className="mt-6">
+            <h4 className="font-semibold mb-2 text-red-500">Error</h4>
+            <div className="flex items-center gap-2 mb-2">
+              <span className={cn('px-2 py-0.5 rounded-full text-white text-xs', getStatusColor(error.status))}>
+                {error.status || 'Client Error'}
+              </span>
             </div>
+            <pre className="mt-2 rounded-lg bg-red-500/10 p-4 text-sm text-red-500 overflow-x-auto">
+              <code>{JSON.stringify(error.data, null, 2)}</code>
+            </pre>
+          </div>
         )}
       </CardContent>
     </Card>
@@ -165,6 +141,40 @@ function EndpointCard({ method, path, description, params: paramNames = [] }: (t
 }
 
 function Api() {
+  const [endpoints, setEndpoints] = useState<ApiEndpoint[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchSwaggerDoc = async () => {
+      try {
+        const response = await apiClient.get('http://evolgo.fragenciamarketingdigital.com.br/swagger/doc.json');
+        const swaggerData = response.data;
+
+        const parsedEndpoints: ApiEndpoint[] = [];
+        for (const path in swaggerData.paths) {
+          for (const method in swaggerData.paths[path]) {
+            const endpoint = swaggerData.paths[path][method];
+            const params = endpoint.parameters ? endpoint.parameters.filter((p: any) => p.in === 'path').map((p: any) => p.name) : [];
+            parsedEndpoints.push({
+              path,
+              method,
+              description: endpoint.summary || endpoint.description || '',
+              params,
+            });
+          }
+        }
+        setEndpoints(parsedEndpoints);
+      } catch (err) {
+        setError('Falha ao carregar a documentação da API.');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchSwaggerDoc();
+  }, []);
+
   return (
     <div className="container mx-auto px-4 py-8">
       <header className="mb-10 text-center">
@@ -172,14 +182,33 @@ function Api() {
           API Documentation
         </h1>
         <p className="mt-4 text-lg text-muted-foreground">
-          Explore and test the Evolution GO API endpoints.
+          Explore e teste os endpoints da API Evolution GO.
         </p>
       </header>
-      <div className="space-y-12">
-        {apiEndpoints.map((endpoint) => (
-          <EndpointCard key={endpoint.path} {...endpoint} />
-        ))}
-      </div>
+
+      {isLoading && (
+        <div className="space-y-12">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <Skeleton key={i} className="h-48 w-full" />
+          ))}
+        </div>
+      )}
+
+      {error && (
+        <div className="flex flex-col items-center justify-center text-center">
+          <ServerCrash className="h-16 w-16 text-destructive mb-4" />
+          <h2 className="text-2xl font-semibold text-destructive">Oops! Algo deu errado.</h2>
+          <p className="text-muted-foreground mt-2">{error}</p>
+        </div>
+      )}
+
+      {!isLoading && !error && (
+        <div className="space-y-12">
+          {endpoints.map((endpoint) => (
+            <EndpointCard key={`${endpoint.method}-${endpoint.path}`} {...endpoint} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

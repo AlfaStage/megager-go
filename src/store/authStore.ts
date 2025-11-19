@@ -52,18 +52,13 @@ const useAuthStore = create<AuthStore>()(
 
       // Logout method - clears credentials and localStorage
       logout: () => {
-        // Clear localStorage
-        localStorage.removeItem('evolution-auth');
-        
         // Reset state
         set({
           apiUrl: typeof window !== 'undefined' ? window.location.origin : 'http://localhost:8082',
           apiKey: '',
           isAuthenticated: false,
         });
-        
-        // Redirect to login page
-        window.location.href = '/manager/login';
+        // The redirect will be handled by the protected route logic in App.tsx
       },
 
       // Update API URL
